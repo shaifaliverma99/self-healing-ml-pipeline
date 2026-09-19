@@ -1,6 +1,7 @@
 """Run this ON CAMERA against the live deployed API to show the self-healing
-loop actually happening: predictions, a real drift event, an automatic
-retrain, and the final cost summary.
+loop actually happening: predictions, a real drift event, a diagnosis of
+which feature is implicated, a validation-gated retrain (committed or
+rejected), and the final cost summary.
 
 Usage:
     python demo/live_demo.py --base https://self-healing-ml-pipeline-7ejk.onrender.com
@@ -57,10 +58,15 @@ for i in range(args.n):
     if len(window) > 50:
         window.pop(0)
 
-    if resp["model_version"] != last_version:
-        print(f"\n*** DRIFT DETECTED at sample {i} -- model retrained "
+    if resp.get("recovery") == "committed":
+        print(f"\n*** DRIFT DETECTED at sample {i} -- diagnosis implicates feature "
+              f"{resp['diagnosis_feature']} -- retrain validated and committed "
               f"(v{last_version} -> v{resp['model_version']}) ***\n")
         last_version = resp["model_version"]
+    elif resp.get("recovery") == "rejected":
+        print(f"\n*** DRIFT DETECTED at sample {i} -- diagnosis implicates feature "
+              f"{resp['diagnosis_feature']} -- candidate retrain REJECTED by validation "
+              f"gate (did not beat current model on held-out data) ***\n")
 
     if (i + 1) % 25 == 0:
         acc = sum(window) / len(window)

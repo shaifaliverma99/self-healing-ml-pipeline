@@ -1,8 +1,13 @@
 """FastAPI serving layer: exposes the self-healing pipeline as a real HTTP service.
 
+On a drift signal, a candidate retrain is diagnosed (which feature looks
+implicated in the errors) and validated on held-out buffer data before being
+committed; a candidate that doesn't beat the currently-served model on that
+held-out slice is rejected and the old model keeps serving.
+
 GET  /         -- service info and links (so the bare URL isn't a 404)
 POST /predict   -- classify one sample, logging it for drift monitoring
-GET  /status    -- current model version, drift-detector state, cumulative cost
+GET  /status    -- model version, drift events, commit/reject counts, cost
 POST /reset     -- reinitialize with a fresh synthetic stream (demo convenience)
 
 Run locally with: uvicorn src.api:app --reload
@@ -19,6 +24,7 @@ from pydantic import BaseModel
 from src.model import OnlineModel
 from src.drift_detectors import ADWIN
 from src.cost_tracker import CostTracker
+from src.diagnosis import diagnose
 from src.stream_generator import sea_stream
 
 app = FastAPI(title="Self-Healing ML Pipeline")
@@ -48,9 +54,13 @@ def _init_state():
     _state["cost"] = CostTracker()
     _state["buffer_X"] = deque(maxlen=BUFFER_SIZE)
     _state["buffer_y"] = deque(maxlen=BUFFER_SIZE)
+    _state["buffer_err"] = deque(maxlen=BUFFER_SIZE)
     _state["n_seen"] = 0
     _state["last_retrain_step"] = -COOLDOWN
     _state["drift_events"] = []
+    _state["retrains_committed"] = 0
+    _state["retrains_rejected"] = 0
+    _state["last_diagnosis"] = None
 
 
 _init_state()
@@ -65,6 +75,8 @@ class PredictResponse(BaseModel):
     prediction: int
     model_version: int
     drift_detected: bool
+    recovery: str | None = None       # "committed" | "rejected", set only on a retrain attempt
+    diagnosis_feature: int | None = None  # feature index a shallow decision tree implicates in the errors
 
 
 @app.get("/")
@@ -96,22 +108,37 @@ def predict(req: PredictRequest):
         _state["n_seen"] += 1
 
         drift = False
+        recovery = None
+        diagnosis_feature = None
         if req.true_label is not None:
             correct = int(pred == req.true_label)
             _state["buffer_X"].append(x)
             _state["buffer_y"].append(req.true_label)
+            _state["buffer_err"].append(1 - correct)
             _, drift = _state["detector"].update(correct)
             i = _state["n_seen"]
-            if drift and (i - _state["last_retrain_step"]) > COOLDOWN and len(_state["buffer_X"]) >= 30:
-                retrained = model.retrain(np.array(_state["buffer_X"]), np.array(_state["buffer_y"]))
-                if retrained:
-                    _state["cost"].record_retrain()
-                    _state["last_retrain_step"] = i
-                    _state["drift_events"].append(i)
+            if drift and (i - _state["last_retrain_step"]) > COOLDOWN and len(_state["buffer_X"]) >= 50:
+                _state["last_retrain_step"] = i
+                _state["drift_events"].append(i)
+
+                diag = diagnose(np.array(_state["buffer_X"]), np.array(_state["buffer_err"]))
+                _state["last_diagnosis"] = diag
+                diagnosis_feature = diag["top_feature"] if diag else None
+
+                proposal = model.propose_retrain(np.array(_state["buffer_X"]), np.array(_state["buffer_y"]))
+                _state["cost"].record_retrain()
+                if proposal is not None and proposal["val_acc_new"] >= proposal["val_acc_old"]:
+                    model.commit(proposal["candidate"])
+                    _state["retrains_committed"] += 1
+                    recovery = "committed"
+                else:
+                    _state["retrains_rejected"] += 1
+                    recovery = "rejected"
 
         model_version = model.version
 
-    return PredictResponse(prediction=pred, model_version=model_version, drift_detected=drift)
+    return PredictResponse(prediction=pred, model_version=model_version, drift_detected=drift,
+                            recovery=recovery, diagnosis_feature=diagnosis_feature)
 
 
 @app.get("/status")
@@ -121,6 +148,9 @@ def status():
             "n_requests_seen": _state["n_seen"],
             "model_version": _state["model"].version,
             "drift_events": list(_state["drift_events"]),
+            "retrains_committed": _state["retrains_committed"],
+            "retrains_rejected": _state["retrains_rejected"],
+            "last_diagnosis": _state["last_diagnosis"],
             "cost": _state["cost"].summary(),
         }
 

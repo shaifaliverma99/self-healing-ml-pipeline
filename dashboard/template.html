@@ -107,7 +107,7 @@
   .section-head h2{font-size:1.05rem; font-weight:700;}
   .section-head .sub{color:var(--ink-muted); font-size:0.85rem; max-width:60ch;}
 
-  .tiles{display:grid; grid-template-columns:repeat(4,1fr); gap:2px; background:var(--border); border:1px solid var(--border); border-radius:12px; overflow:hidden;}
+  .tiles{display:grid; grid-template-columns:repeat(5,1fr); gap:2px; background:var(--border); border:1px solid var(--border); border-radius:12px; overflow:hidden;}
   .tile{background:var(--card); padding:16px; display:flex; flex-direction:column; gap:6px; min-width:0;}
   .tile .label{font-size:0.72rem; text-transform:uppercase; letter-spacing:0.04em; color:var(--ink-muted);}
   .tile .value{font-size:1.6rem; font-weight:600; font-family:var(--font-mono); font-variant-numeric:tabular-nums; overflow-wrap:anywhere;}
@@ -185,7 +185,7 @@
   <div class="section-head">
     <div>
       <h2>Live system</h2>
-      <p class="sub">Reading straight from the deployed API. Run the simulation below to watch it detect a real concept drift and retrain itself.</p>
+      <p class="sub">Reading straight from the deployed API. Run the simulation below to watch it detect a real concept drift, diagnose which feature is implicated, and either commit or reject a candidate retrain based on held-out validation.</p>
     </div>
   </div>
 
@@ -193,6 +193,7 @@
     <div class="tile"><span class="label">Requests served</span><span class="value num" id="t-requests">—</span></div>
     <div class="tile"><span class="label">Model version</span><span class="value num" id="t-version">—</span></div>
     <div class="tile"><span class="label">Drift events</span><span class="value num" id="t-drifts">—</span></div>
+    <div class="tile"><span class="label">Retrains committed / rejected</span><span class="value num" id="t-recovery">—</span><span class="hint">validation gate</span></div>
     <div class="tile"><span class="label">Cumulative cost</span><span class="value num" id="t-cost">—</span><span class="hint">simulated cloud $</span></div>
   </div>
 
@@ -213,7 +214,8 @@
     <div class="legend">
       <span class="k"><span class="sw" style="background:var(--aqua);"></span> rolling accuracy (last 30)</span>
       <span class="k"><span class="sw" style="background:var(--critical);"></span> drift injected</span>
-      <span class="k"><span class="sw" style="background:var(--blue);"></span> model retrained</span>
+      <span class="k"><span class="sw" style="background:var(--blue);"></span> retrain committed</span>
+      <span class="k"><span class="sw" style="background:var(--warning);"></span> retrain rejected (validation gate)</span>
     </div>
 
     <div class="log" id="log" style="margin-top:14px;" aria-live="polite"></div>
@@ -258,6 +260,20 @@
   <div class="chart-grid" id="ablation-charts"></div>
   <div class="legend" id="ablation-legend"></div>
   <div class="callout" style="margin-top:14px;">On both abrupt-drift streams, naive periodic retraining is statistically competitive with detection — sometimes numerically ahead, at a lower and perfectly predictable cost. Detection's advantage is concentrated in gradual drift.</div>
+</section>
+
+<section id="diagnosis-section">
+  <div class="section-head">
+    <div>
+      <h2>Diagnosis &amp; validation gate</h2>
+      <p class="sub">Two layers absent from the base pipeline: a shallow decision tree diagnoses which feature is implicated in recent errors, and a candidate retrain is only committed if it beats the current model on held-out buffer data. 10 seeds, ADWIN.</p>
+    </div>
+  </div>
+  <table class="data-table">
+    <thead><tr><th>Stream</th><th class="num">Retrain attempts</th><th class="num">Committed</th><th class="num">Rejected</th><th class="num">Commit rate</th></tr></thead>
+    <tbody id="diagnosis-table"></tbody>
+  </table>
+  <div class="callout" style="margin-top:14px;" id="diagnosis-callout"></div>
 </section>
 
 <section id="timing-section">
@@ -405,6 +421,26 @@ function renderTimingTable(){
   ).join("");
 }
 
+function renderDiagnosisSection(){
+  document.getElementById("diagnosis-table").innerHTML = DATA.diag.map(r=>
+    `<tr><td>${STREAM_LABEL[r.stream]}</td>
+      <td class="num">${r.retrain_attempts_mean.toFixed(1)}</td>
+      <td class="num">${r.retrains_committed_mean.toFixed(1)}</td>
+      <td class="num">${r.retrains_rejected_mean.toFixed(1)}</td>
+      <td class="num">${(r.commit_rate*100).toFixed(0)}%</td></tr>`
+  ).join("");
+
+  const n = DATA.diag_acc.length;
+  const decoyTop = DATA.diag_acc.filter(r=>r.decoy_is_top).length;
+  const decoyLast = DATA.diag_acc.filter(r=>r.decoy_ranked_last).length;
+  document.getElementById("diagnosis-callout").innerHTML =
+    `On SEA, feature 2 is a pure decoy (not part of the labelling rule) — across ${n} real diagnosis ` +
+    `events, it was correctly ranked <em>least</em> implicated ${(100*decoyLast/n).toFixed(0)}% of the time ` +
+    `and incorrectly ranked <em>most</em> implicated ${(100*decoyTop/n).toFixed(0)}% of the time ` +
+    `(chance would be ~33% either way). SEA also shows the lowest commit rate of the three streams — ` +
+    `most candidate retrains there don't beat the current model on held-out data and are correctly rejected.`;
+}
+
 // ---------------- live section ----------------
 const livePill = document.getElementById("live-pill");
 const livePillText = document.getElementById("live-pill-text");
@@ -433,6 +469,7 @@ function setTiles(status){
   document.getElementById("t-requests").textContent = status.n_requests_seen;
   document.getElementById("t-version").textContent = "v" + status.model_version;
   document.getElementById("t-drifts").textContent = status.drift_events.length;
+  document.getElementById("t-recovery").textContent = `${status.retrains_committed ?? 0} / ${status.retrains_rejected ?? 0}`;
   document.getElementById("t-cost").textContent = "$" + status.cost.total_cost_usd.toFixed(4);
 }
 
@@ -494,7 +531,7 @@ function drawLiveChart(points, markers){
   });
   markers.forEach(m=>{
     const mx = x(m.i);
-    const color = m.type === "drift" ? "var(--critical)" : "var(--blue)";
+    const color = m.type === "drift" ? "var(--critical)" : m.type === "rejected" ? "var(--warning)" : "var(--blue)";
     s += `<line x1="${mx}" y1="${padT}" x2="${mx}" y2="${padT+plotH}" stroke="${color}" stroke-width="1.5" stroke-dasharray="3,3"/>`;
   });
   if(points.length > 1){
@@ -541,9 +578,12 @@ btnRun.addEventListener("click", async ()=>{
       const acc = rollingWindow.reduce((a,b)=>a+b,0)/rollingWindow.length;
       points.push(acc);
 
-      if(lastVersion !== null && resp.model_version !== lastVersion){
-        log(`*** drift detected -- model retrained v${lastVersion} -> v${resp.model_version} ***`, "event");
+      if(resp.recovery === "committed"){
+        log(`*** drift detected -- diagnosis implicates feature ${resp.diagnosis_feature} -- retrain validated & committed (v${lastVersion} -> v${resp.model_version}) ***`, "event");
         markers.push({i, type:"retrain"});
+      }else if(resp.recovery === "rejected"){
+        log(`*** drift detected -- diagnosis implicates feature ${resp.diagnosis_feature} -- candidate retrain REJECTED (validation gate) ***`, "warn");
+        markers.push({i, type:"rejected"});
       }
       lastVersion = resp.model_version;
     }catch(e){
@@ -567,5 +607,6 @@ renderDetectorCharts();
 renderSignificanceTable();
 renderAblationCharts();
 renderTimingTable();
+renderDiagnosisSection();
 pollUntilLive(15, 5000);
 </script>

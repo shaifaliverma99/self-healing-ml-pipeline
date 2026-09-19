@@ -19,6 +19,8 @@ data = {
     "sig": records("significance_tests"),
     "abl": records("ablation_study"),
     "timing": records("timing"),
+    "diag": records("diagnosis_validation"),
+    "diag_acc": records("diagnosis_accuracy"),
 }
 
 template = (D / "template.html").read_text()
