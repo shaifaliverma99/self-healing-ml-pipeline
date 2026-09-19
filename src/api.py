@@ -1,5 +1,6 @@
 """FastAPI serving layer: exposes the self-healing pipeline as a real HTTP service.
 
+GET  /         -- service info and links (so the bare URL isn't a 404)
 POST /predict   -- classify one sample, logging it for drift monitoring
 GET  /status    -- current model version, drift-detector state, cumulative cost
 POST /reset     -- reinitialize with a fresh synthetic stream (demo convenience)
@@ -56,6 +57,19 @@ class PredictResponse(BaseModel):
     prediction: int
     model_version: int
     drift_detected: bool
+
+
+@app.get("/")
+def root():
+    return {
+        "service": "Self-Healing ML Pipeline",
+        "docs": "/docs",
+        "endpoints": {
+            "POST /predict": "classify one sample; pass true_label to enable drift monitoring",
+            "GET /status": "model version, drift events, cumulative cost",
+            "POST /reset": "reinitialize with a fresh synthetic stream",
+        },
+    }
 
 
 @app.post("/predict", response_model=PredictResponse)
