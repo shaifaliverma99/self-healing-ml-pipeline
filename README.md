@@ -5,6 +5,10 @@ MTech final-year project scoped to double as (a) a deployable applied-ML/MLOps
 system for a resume/interview demo, and (b) a small empirical study comparing
 drift-detection algorithms, submittable as a paper.
 
+**[Live dashboard](https://claude.ai/artifact/J95YiowGk2gu7ZEh9JkNMr)** — run
+the drift-detection demo against the live API and see the validated detector
+comparison, ablation study, and significance tests, all in one page.
+
 ## What's here
 
 - `src/stream_generator.py` — synthetic concept-drift streams (SEA, SINE,
@@ -28,6 +32,10 @@ drift-detection algorithms, submittable as a paper.
   result.
 - `deploy/README.md` — how to actually put the API on AWS Lambda / GCP Cloud
   Run / Render once you have an account to deploy to.
+- `dashboard/` — the live dashboard (`index.html`, self-contained, no build
+  step). `template.html` + `build_dashboard.py` regenerate `index.html` from
+  the real `results/*.csv` files, same pattern as `paper/build_paper.py` — run
+  it after any experiment changes so the dashboard's numbers stay in sync.
 
 ## Run it
 

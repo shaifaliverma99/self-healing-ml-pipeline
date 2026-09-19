@@ -1,0 +1,562 @@
+<title>Drift Control Room</title>
+<meta name="description" content="Live dashboard for a self-healing ML pipeline: real-time drift detection demo plus the statistically validated detector comparison behind the paper.">
+<style>
+  :root{
+    color-scheme: light;
+    --surface:      #fcfcfb;
+    --plane:        #f9f9f7;
+    --ink:          #0b0b0b;
+    --ink-2:        #52514e;
+    --ink-muted:    #898781;
+    --grid:         #e1e0d9;
+    --axis:         #c3c2b7;
+    --border:       rgba(11,11,11,0.10);
+    --card:         #ffffff;
+
+    --blue:   #2a78d6;
+    --orange: #eb6834;
+    --aqua:   #1baf7a;
+    --yellow: #eda100;
+
+    --good:     #0ca30c;
+    --warning:  #fab219;
+    --critical: #d03b3b;
+
+    --font-ui:   "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+    --font-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      color-scheme: dark;
+      --surface:   #1a1a19;
+      --plane:     #0d0d0d;
+      --ink:       #ffffff;
+      --ink-2:     #c3c2b7;
+      --ink-muted: #898781;
+      --grid:      #2c2c2a;
+      --axis:      #383835;
+      --border:    rgba(255,255,255,0.10);
+      --card:      #17171a;
+      --blue:   #3987e5;
+      --orange: #d95926;
+      --aqua:   #199e70;
+      --yellow: #c98500;
+      --good:     #0ca30c;
+      --warning:  #fab219;
+      --critical: #e66767;
+    }
+  }
+  :root[data-theme="dark"]{
+    color-scheme: dark;
+    --surface:   #1a1a19;
+    --plane:     #0d0d0d;
+    --ink:       #ffffff;
+    --ink-2:     #c3c2b7;
+    --ink-muted: #898781;
+    --grid:      #2c2c2a;
+    --axis:      #383835;
+    --border:    rgba(255,255,255,0.10);
+    --card:      #17171a;
+    --blue:   #3987e5;
+    --orange: #d95926;
+    --aqua:   #199e70;
+    --yellow: #c98500;
+    --good:     #0ca30c;
+    --warning:  #fab219;
+    --critical: #e66767;
+  }
+
+  *{box-sizing:border-box;}
+  body{
+    background:var(--plane);
+    color:var(--ink);
+    font-family:var(--font-ui);
+    padding-inline:16px;
+    padding-block:24px;
+    max-width:1120px;
+    margin:0 auto;
+  }
+  h1,h2,h3{text-wrap:balance; margin:0;}
+  p{margin:0;}
+  .num{font-family:var(--font-mono); font-variant-numeric:tabular-nums;}
+  a{color:inherit;}
+
+  header.top{
+    display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between;
+    gap:12px; padding-block:4px 20px; border-bottom:1px solid var(--border); margin-bottom:24px;
+  }
+  .brand{display:flex; align-items:baseline; gap:10px; flex-wrap:wrap;}
+  .brand h1{font-size:1.35rem; font-weight:700; letter-spacing:-0.01em;}
+  .brand .tag{color:var(--ink-muted); font-size:0.85rem;}
+  nav.links{display:flex; gap:16px; font-size:0.85rem; flex-wrap:wrap;}
+  nav.links a{text-decoration:none; color:var(--ink-2); border-bottom:1px solid transparent;}
+  nav.links a:hover{border-color:var(--ink-2);}
+
+  .pill{
+    display:inline-flex; align-items:center; gap:6px; font-size:0.78rem;
+    padding:4px 10px; border-radius:999px; border:1px solid var(--border);
+    font-family:var(--font-mono); white-space:nowrap;
+  }
+  .pill .dot{width:7px; height:7px; border-radius:50%; background:var(--ink-muted);}
+  .pill.live .dot{background:var(--good); box-shadow:0 0 0 3px color-mix(in oklab, var(--good) 25%, transparent);}
+  .pill.down .dot{background:var(--critical);}
+  .pill.pending .dot{background:var(--warning);}
+
+  section{margin-block:36px;}
+  .section-head{display:flex; align-items:baseline; justify-content:space-between; gap:12px; margin-bottom:14px; flex-wrap:wrap;}
+  .section-head h2{font-size:1.05rem; font-weight:700;}
+  .section-head .sub{color:var(--ink-muted); font-size:0.85rem; max-width:60ch;}
+
+  .tiles{display:grid; grid-template-columns:repeat(4,1fr); gap:2px; background:var(--border); border:1px solid var(--border); border-radius:12px; overflow:hidden;}
+  .tile{background:var(--card); padding:16px; display:flex; flex-direction:column; gap:6px; min-width:0;}
+  .tile .label{font-size:0.72rem; text-transform:uppercase; letter-spacing:0.04em; color:var(--ink-muted);}
+  .tile .value{font-size:1.6rem; font-weight:600; font-family:var(--font-mono); font-variant-numeric:tabular-nums; overflow-wrap:anywhere;}
+  .tile .hint{font-size:0.75rem; color:var(--ink-2);}
+  @media (max-width:700px){ .tiles{grid-template-columns:repeat(2,1fr);} }
+
+  .panel{background:var(--card); border:1px solid var(--border); border-radius:12px; padding:20px;}
+  .row{display:flex; gap:12px; flex-wrap:wrap; align-items:center;}
+
+  button{
+    font-family:var(--font-ui); font-size:0.85rem; font-weight:600; padding:9px 16px;
+    border-radius:8px; border:1px solid var(--border); background:var(--ink); color:var(--surface);
+    cursor:pointer;
+  }
+  button.secondary{background:transparent; color:var(--ink);}
+  button:disabled{opacity:0.45; cursor:not-allowed;}
+  button:focus-visible, a:focus-visible{outline:2px solid var(--blue); outline-offset:2px;}
+
+  .progress{height:6px; border-radius:999px; background:var(--grid); overflow:hidden; flex:1; min-width:120px;}
+  .progress > i{display:block; height:100%; width:0%; background:var(--aqua); transition:width .15s ease;}
+
+  .chart-grid{display:grid; grid-template-columns:repeat(3,1fr); gap:14px;}
+  @media (max-width:820px){ .chart-grid{grid-template-columns:1fr;} }
+  .chart-card{background:var(--card); border:1px solid var(--border); border-radius:12px; padding:14px;}
+  .chart-card h3{font-size:0.85rem; font-weight:600; margin-bottom:2px;}
+  .chart-card .stream-tag{font-size:0.72rem; color:var(--ink-muted); margin-bottom:8px; display:block;}
+  svg.chart{width:100%; height:auto; overflow:visible;}
+  svg.chart text{font-family:var(--font-mono); fill:var(--ink-muted);}
+  svg.chart .bar-label{font-family:var(--font-mono); fill:var(--ink-2);}
+  .legend{display:flex; gap:14px; flex-wrap:wrap; font-size:0.78rem; color:var(--ink-2); margin-top:10px;}
+  .legend .k{display:inline-flex; align-items:center; gap:6px;}
+  .legend .sw{width:10px; height:10px; border-radius:2px;}
+
+  table{width:100%; border-collapse:collapse; font-size:0.82rem;}
+  table.data-table{overflow-x:auto; display:block;}
+  th,td{text-align:left; padding:8px 10px; border-bottom:1px solid var(--grid);}
+  th{color:var(--ink-muted); font-weight:600; font-size:0.72rem; text-transform:uppercase; letter-spacing:0.03em;}
+  td.num, th.num{font-family:var(--font-mono); font-variant-numeric:tabular-nums; text-align:right;}
+
+  .badge{display:inline-flex; align-items:center; gap:5px; font-size:0.76rem; padding:2px 8px; border-radius:999px; font-family:var(--font-mono);}
+  .badge.sig{background:color-mix(in oklab, var(--good) 16%, transparent); color:var(--good);}
+  .badge.notsig{background:color-mix(in oklab, var(--ink-muted) 14%, transparent); color:var(--ink-2);}
+
+  .log{
+    font-family:var(--font-mono); font-size:0.78rem; background:var(--plane); border:1px solid var(--border);
+    border-radius:8px; padding:10px 12px; height:150px; overflow-y:auto; display:flex; flex-direction:column-reverse;
+  }
+  .log .line{padding-block:1px; color:var(--ink-2); white-space:pre-wrap;}
+  .log .line.event{color:var(--aqua); font-weight:600;}
+  .log .line.warn{color:var(--warning);}
+
+  .callout{border-left:3px solid var(--blue); padding:10px 14px; background:color-mix(in oklab, var(--blue) 7%, transparent); border-radius:0 8px 8px 0; font-size:0.85rem; color:var(--ink-2);}
+
+  footer{margin-top:48px; padding-top:20px; border-top:1px solid var(--border); font-size:0.8rem; color:var(--ink-muted); display:flex; justify-content:space-between; flex-wrap:wrap; gap:8px;}
+</style>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+
+<header class="top">
+  <div class="brand">
+    <h1>Drift Control Room</h1>
+    <span class="tag">self-healing ML pipeline — live demo + validated results</span>
+  </div>
+  <div class="row" style="gap:10px;">
+    <span class="pill pending" id="live-pill"><span class="dot"></span><span id="live-pill-text">connecting…</span></span>
+    <nav class="links">
+      <a href="https://github.com/shaifaliverma99/self-healing-ml-pipeline" target="_blank" rel="noopener">GitHub</a>
+      <a href="https://self-healing-ml-pipeline-7ejk.onrender.com/docs" target="_blank" rel="noopener">API docs</a>
+      <a href="https://github.com/shaifaliverma99/self-healing-ml-pipeline/raw/master/paper/Self_Healing_ML_Pipeline_IEEE.docx" target="_blank" rel="noopener">Paper</a>
+    </nav>
+  </div>
+</header>
+
+<section id="live-section">
+  <div class="section-head">
+    <div>
+      <h2>Live system</h2>
+      <p class="sub">Reading straight from the deployed API. Run the simulation below to watch it detect a real concept drift and retrain itself.</p>
+    </div>
+  </div>
+
+  <div class="tiles" style="margin-bottom:16px;">
+    <div class="tile"><span class="label">Requests served</span><span class="value num" id="t-requests">—</span></div>
+    <div class="tile"><span class="label">Model version</span><span class="value num" id="t-version">—</span></div>
+    <div class="tile"><span class="label">Drift events</span><span class="value num" id="t-drifts">—</span></div>
+    <div class="tile"><span class="label">Cumulative cost</span><span class="value num" id="t-cost">—</span><span class="hint">simulated cloud $</span></div>
+  </div>
+
+  <div class="panel">
+    <div class="row" style="justify-content:space-between; margin-bottom:14px;">
+      <div class="row" style="gap:10px;">
+        <button id="btn-predict">Send test prediction</button>
+        <button id="btn-run">Run drift simulation</button>
+        <button id="btn-stop" class="secondary" disabled>Stop</button>
+      </div>
+      <div class="row" style="gap:8px; flex:1; min-width:200px;">
+        <div class="progress"><i id="progress-bar"></i></div>
+        <span class="num" id="progress-text" style="font-size:0.78rem; color:var(--ink-muted); min-width:70px;">idle</span>
+      </div>
+    </div>
+
+    <svg class="chart" id="live-chart" viewBox="0 0 900 220" preserveAspectRatio="none" role="img" aria-label="Rolling accuracy during the live drift simulation"></svg>
+    <div class="legend">
+      <span class="k"><span class="sw" style="background:var(--aqua);"></span> rolling accuracy (last 30)</span>
+      <span class="k"><span class="sw" style="background:var(--critical);"></span> drift injected</span>
+      <span class="k"><span class="sw" style="background:var(--blue);"></span> model retrained</span>
+    </div>
+
+    <div class="log" id="log" style="margin-top:14px;" aria-live="polite"></div>
+  </div>
+</section>
+
+<section id="comparison-section">
+  <div class="section-head">
+    <div>
+      <h2>Detector comparison — validated</h2>
+      <p class="sub">DDM, EDDM, ADWIN and KSWIN, each run over 10 independent seeds per stream. Bars show mean accuracy; whiskers show ±1 SD.</p>
+    </div>
+  </div>
+  <div class="chart-grid" id="acc-charts"></div>
+  <div class="legend" id="detector-legend"></div>
+
+  <div class="section-head" style="margin-top:28px;">
+    <div>
+      <h3 style="font-size:0.95rem; font-weight:700;">Mean retraining cost per stream</h3>
+      <p class="sub">Same 10 seeds; whiskers show ±1 SD. Note KSWIN's low cost tracks its low detection rate, not efficiency.</p>
+    </div>
+  </div>
+  <div class="chart-grid" id="cost-charts"></div>
+
+  <div class="section-head" style="margin-top:28px;">
+    <div><h3 style="font-size:0.95rem; font-weight:700;">Is ADWIN actually better? (paired Wilcoxon, α=0.05)</h3></div>
+  </div>
+  <div class="callout" style="margin-bottom:14px;">ADWIN's edge over EDDM is a <strong>cost</strong> story (accuracy never significantly different); its edge over DDM/KSWIN is an <strong>accuracy</strong> story — and not always free. With only 10 seeds, "not significant" means "not distinguishable at this sample size," not proven equivalence.</div>
+  <table class="data-table">
+    <thead><tr><th>Stream</th><th>Comparison</th><th class="num">Acc. p</th><th>Accuracy</th><th class="num">Cost p</th><th>Cost</th></tr></thead>
+    <tbody id="sig-table"></tbody>
+  </table>
+</section>
+
+<section id="ablation-section">
+  <div class="section-head">
+    <div>
+      <h2>Ablation: is detection worth it?</h2>
+      <p class="sub">No retraining, vs. a naive fixed schedule every 5,000 samples, vs. the proposed ADWIN-triggered system. 10 seeds per condition.</p>
+    </div>
+  </div>
+  <div class="chart-grid" id="ablation-charts"></div>
+  <div class="legend" id="ablation-legend"></div>
+  <div class="callout" style="margin-top:14px;">On both abrupt-drift streams, naive periodic retraining is statistically competitive with detection — sometimes numerically ahead, at a lower and perfectly predictable cost. Detection's advantage is concentrated in gradual drift.</div>
+</section>
+
+<section id="timing-section">
+  <div class="section-head">
+    <div>
+      <h2>Detector compute cost</h2>
+      <p class="sub">Measured wall-clock time per <code>update()</code> call, single CPU core — negligible next to network latency, but not equal across detectors.</p>
+    </div>
+  </div>
+  <table class="data-table" style="max-width:480px;">
+    <thead><tr><th>Detector</th><th class="num">Time / sample</th><th>Theoretical</th></tr></thead>
+    <tbody id="timing-table"></tbody>
+  </table>
+</section>
+
+<footer>
+  <span>Self-Healing ML Pipeline — Shaifali Verma, Graphic Era University</span>
+  <span>Data from <span class="num">results/*.csv</span> in the linked repo — nothing on this page is hand-typed.</span>
+</footer>
+
+<script>
+const API_BASE = "https://self-healing-ml-pipeline-7ejk.onrender.com";
+
+const DATA = __DATA_JSON__;
+
+const DETECTORS = ["DDM","EDDM","ADWIN","KSWIN"];
+const DET_COLOR = {DDM:"var(--blue)", EDDM:"var(--orange)", ADWIN:"var(--aqua)", KSWIN:"var(--yellow)"};
+const STREAMS = ["sea_abrupt","sine_abrupt","hyperplane_gradual"];
+const STREAM_LABEL = {sea_abrupt:"SEA (abrupt)", sine_abrupt:"SINE (abrupt)", hyperplane_gradual:"Hyperplane (gradual)"};
+const ABL_COND = ["A0_no_retrain","A1_periodic_retrain","A2_full_system_ADWIN"];
+const ABL_LABEL = {A0_no_retrain:"No retrain", A1_periodic_retrain:"Periodic", A2_full_system_ADWIN:"ADWIN-triggered"};
+const ABL_COLOR = {A0_no_retrain:"var(--blue)", A1_periodic_retrain:"var(--orange)", A2_full_system_ADWIN:"var(--aqua)"};
+
+function resolveColor(cssVar){
+  const m = cssVar.match(/var\((--[\w-]+)\)/);
+  if(!m) return cssVar;
+  return getComputedStyle(document.documentElement).getPropertyValue(m[1]).trim();
+}
+
+// ---- small-multiple bar chart with error whiskers, drawn to an explicit scale ----
+function barChart(svgEl, {labels, values, errors, colors, yMax, valueFmt}){
+  const W = 260, H = 170, padL = 30, padR = 8, padT = 10, padB = 24;
+  const plotW = W - padL - padR, plotH = H - padT - padB;
+  const n = values.length;
+  const gap = 10;
+  const barW = (plotW - gap*(n-1)) / n;
+  const scaleY = v => padT + plotH - (v/yMax)*plotH;
+  let s = `<g>`;
+  // gridlines + axis labels (0, mid, max)
+  [0, yMax/2, yMax].forEach(v=>{
+    const y = scaleY(v);
+    s += `<line x1="${padL}" y1="${y}" x2="${W-padR}" y2="${y}" stroke="var(--grid)" stroke-width="1"/>`;
+    s += `<text x="${padL-6}" y="${y+3}" font-size="8" text-anchor="end">${valueFmt(v)}</text>`;
+  });
+  values.forEach((v,i)=>{
+    const x = padL + i*(barW+gap);
+    const y = scaleY(v);
+    const h = padT+plotH - y;
+    s += `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${barW.toFixed(1)}" height="${Math.max(h,0).toFixed(1)}" fill="${colors[i]}" rx="2"/>`;
+    if(errors && errors[i]){
+      const eTop = scaleY(Math.min(v+errors[i], yMax));
+      const eBot = scaleY(Math.max(v-errors[i], 0));
+      const cx = x + barW/2;
+      s += `<line x1="${cx}" y1="${eTop}" x2="${cx}" y2="${eBot}" stroke="var(--ink-2)" stroke-width="1.4"/>`;
+      s += `<line x1="${cx-4}" y1="${eTop}" x2="${cx+4}" y2="${eTop}" stroke="var(--ink-2)" stroke-width="1.4"/>`;
+      s += `<line x1="${cx-4}" y1="${eBot}" x2="${cx+4}" y2="${eBot}" stroke="var(--ink-2)" stroke-width="1.4"/>`;
+    }
+    s += `<text class="bar-label" x="${(x+barW/2).toFixed(1)}" y="${H-padB+13}" font-size="8" text-anchor="middle">${labels[i]}</text>`;
+  });
+  s += `<line x1="${padL}" y1="${padT+plotH}" x2="${W-padR}" y2="${padT+plotH}" stroke="var(--axis)" stroke-width="1"/>`;
+  s += `</g>`;
+  svgEl.setAttribute("viewBox", `0 0 ${W} ${H}`);
+  svgEl.innerHTML = s;
+}
+
+function renderDetectorCharts(){
+  const accHost = document.getElementById("acc-charts");
+  const costHost = document.getElementById("cost-charts");
+  accHost.innerHTML = ""; costHost.innerHTML = "";
+  const costMax = Math.max(...DATA.stat.map(r=>r.cost_mean+r.cost_std)) * 1.15;
+
+  STREAMS.forEach(stream=>{
+    const rows = DETECTORS.map(d => DATA.stat.find(r=>r.stream===stream && r.detector===d));
+
+    const accCard = document.createElement("div"); accCard.className = "chart-card";
+    accCard.innerHTML = `<h3>${STREAM_LABEL[stream]}</h3><span class="stream-tag">accuracy, mean ± SD</span><svg class="chart"></svg>`;
+    accHost.appendChild(accCard);
+    barChart(accCard.querySelector("svg"), {
+      labels: DETECTORS, values: rows.map(r=>r.acc_mean), errors: rows.map(r=>r.acc_std),
+      colors: DETECTORS.map(d=>DET_COLOR[d]), yMax: 1.0, valueFmt: v=>v.toFixed(1)
+    });
+
+    const costCard = document.createElement("div"); costCard.className = "chart-card";
+    costCard.innerHTML = `<h3>${STREAM_LABEL[stream]}</h3><span class="stream-tag">cost ($), mean ± SD</span><svg class="chart"></svg>`;
+    costHost.appendChild(costCard);
+    barChart(costCard.querySelector("svg"), {
+      labels: DETECTORS, values: rows.map(r=>r.cost_mean), errors: rows.map(r=>r.cost_std),
+      colors: DETECTORS.map(d=>DET_COLOR[d]), yMax: costMax, valueFmt: v=>"$"+v.toFixed(2)
+    });
+  });
+
+  document.getElementById("detector-legend").innerHTML = DETECTORS.map(d=>
+    `<span class="k"><span class="sw" style="background:${DET_COLOR[d]}"></span>${d}</span>`).join("");
+}
+
+function renderSignificanceTable(){
+  const tbody = document.getElementById("sig-table");
+  tbody.innerHTML = DATA.sig.map(r=>{
+    const accBadge = r["acc_significant_at_0.05"]
+      ? `<span class="badge sig">significant</span>` : `<span class="badge notsig">n.s.</span>`;
+    const costBadge = r["cost_significant_at_0.05"]
+      ? `<span class="badge sig">significant</span>` : `<span class="badge notsig">n.s.</span>`;
+    return `<tr>
+      <td>${STREAM_LABEL[r.stream]}</td>
+      <td>${r.comparison}</td>
+      <td class="num">${r.acc_wilcoxon_p.toFixed(3)}</td>
+      <td>${accBadge}</td>
+      <td class="num">${r.cost_wilcoxon_p.toFixed(3)}</td>
+      <td>${costBadge}</td>
+    </tr>`;
+  }).join("");
+}
+
+function renderAblationCharts(){
+  const host = document.getElementById("ablation-charts");
+  host.innerHTML = "";
+  STREAMS.forEach(stream=>{
+    const rows = ABL_COND.map(c => DATA.abl.find(r=>r.stream===stream && r.condition===c));
+    const card = document.createElement("div"); card.className = "chart-card";
+    card.innerHTML = `<h3>${STREAM_LABEL[stream]}</h3><span class="stream-tag">accuracy, mean ± SD</span><svg class="chart"></svg>`;
+    host.appendChild(card);
+    barChart(card.querySelector("svg"), {
+      labels: ABL_COND.map(c=>ABL_LABEL[c]), values: rows.map(r=>r.acc_mean), errors: rows.map(r=>r.acc_std),
+      colors: ABL_COND.map(c=>ABL_COLOR[c]), yMax: 1.0, valueFmt: v=>v.toFixed(1)
+    });
+  });
+  document.getElementById("ablation-legend").innerHTML = ABL_COND.map(c=>
+    `<span class="k"><span class="sw" style="background:${ABL_COLOR[c]}"></span>${ABL_LABEL[c]}</span>`).join("");
+}
+
+function renderTimingTable(){
+  const theory = {DDM:"O(1) time / memory", EDDM:"O(1) time / memory", ADWIN:"O(log W) amortised", KSWIN:"O(w), w = sub-window"};
+  document.getElementById("timing-table").innerHTML = DATA.timing.map(r=>
+    `<tr><td>${r.detector}</td><td class="num">${r.mean_us_per_sample.toFixed(2)} µs</td><td>${theory[r.detector]}</td></tr>`
+  ).join("");
+}
+
+// ---------------- live section ----------------
+const livePill = document.getElementById("live-pill");
+const livePillText = document.getElementById("live-pill-text");
+const logEl = document.getElementById("log");
+
+function log(msg, cls){
+  const d = document.createElement("div");
+  d.className = "line" + (cls ? " "+cls : "");
+  const t = new Date().toLocaleTimeString();
+  d.textContent = `[${t}] ${msg}`;
+  logEl.prepend(d);
+  while(logEl.childNodes.length > 200) logEl.removeChild(logEl.lastChild);
+}
+
+async function apiCall(path, opts){
+  const res = await fetch(API_BASE + path, opts);
+  if(!res.ok){
+    let detail = res.statusText;
+    try{ detail = (await res.json()).detail ?? detail; }catch(e){}
+    throw new Error(`${res.status} ${detail}`);
+  }
+  return res.json();
+}
+
+function setTiles(status){
+  document.getElementById("t-requests").textContent = status.n_requests_seen;
+  document.getElementById("t-version").textContent = "v" + status.model_version;
+  document.getElementById("t-drifts").textContent = status.drift_events.length;
+  document.getElementById("t-cost").textContent = "$" + status.cost.total_cost_usd.toFixed(4);
+}
+
+async function refreshStatus(){
+  try{
+    const status = await apiCall("/status");
+    setTiles(status);
+    livePill.className = "pill live";
+    livePillText.textContent = "live";
+    return status;
+  }catch(e){
+    livePill.className = "pill down";
+    livePillText.textContent = "waking up… (free-tier cold start, retrying)";
+    throw e;
+  }
+}
+
+async function pollUntilLive(maxTries){
+  for(let i=0;i<maxTries;i++){
+    try{ await refreshStatus(); return true; }catch(e){ await new Promise(r=>setTimeout(r, 4000)); }
+  }
+  return false;
+}
+
+document.getElementById("btn-predict").addEventListener("click", async ()=>{
+  const btn = document.getElementById("btn-predict");
+  btn.disabled = true;
+  try{
+    const f = [Math.random()*10, Math.random()*10, Math.random()*10];
+    const label = (f[0]+f[1] > 8) ? 1 : 0;
+    const resp = await apiCall("/predict", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({features:f, true_label:label})});
+    log(`predict [${f.map(v=>v.toFixed(1)).join(", ")}] -> ${resp.prediction} (model v${resp.model_version})`);
+    await refreshStatus();
+  }catch(e){ log("request failed: " + e.message, "warn"); }
+  btn.disabled = false;
+});
+
+// live rolling-accuracy chart, drawn to an explicit scale as points arrive
+const liveChart = document.getElementById("live-chart");
+function drawLiveChart(points, markers){
+  const W = 900, H = 220, padL = 34, padR = 10, padT = 10, padB = 20;
+  const plotW = W-padL-padR, plotH = H-padT-padB;
+  const n = Math.max(points.length, 2);
+  const x = i => padL + (i/(n-1))*plotW;
+  const y = v => padT + plotH - v*plotH;
+  let s = "";
+  [0, 0.5, 1].forEach(v=>{
+    s += `<line x1="${padL}" y1="${y(v)}" x2="${W-padR}" y2="${y(v)}" stroke="var(--grid)" stroke-width="1"/>`;
+    s += `<text x="${padL-6}" y="${y(v)+3}" font-size="9" text-anchor="end">${v.toFixed(1)}</text>`;
+  });
+  markers.forEach(m=>{
+    const mx = x(m.i);
+    const color = m.type === "drift" ? "var(--critical)" : "var(--blue)";
+    s += `<line x1="${mx}" y1="${padT}" x2="${mx}" y2="${padT+plotH}" stroke="${color}" stroke-width="1.5" stroke-dasharray="3,3"/>`;
+  });
+  if(points.length > 1){
+    const path = points.map((p,i)=> (i===0?"M":"L") + x(i).toFixed(1) + " " + y(p).toFixed(1)).join(" ");
+    s += `<path d="${path}" fill="none" stroke="var(--aqua)" stroke-width="2"/>`;
+  }
+  s += `<line x1="${padL}" y1="${padT+plotH}" x2="${W-padR}" y2="${padT+plotH}" stroke="var(--axis)" stroke-width="1"/>`;
+  liveChart.innerHTML = s;
+}
+drawLiveChart([], []);
+
+let stopRequested = false;
+const btnRun = document.getElementById("btn-run");
+const btnStop = document.getElementById("btn-stop");
+const progressBar = document.getElementById("progress-bar");
+const progressText = document.getElementById("progress-text");
+
+btnStop.addEventListener("click", ()=>{ stopRequested = true; });
+
+btnRun.addEventListener("click", async ()=>{
+  const N = 220, DRIFT_AT = 80;
+  btnRun.disabled = true; btnStop.disabled = false; stopRequested = false;
+  const rollingWindow = [];
+  const points = [];
+  const markers = [];
+  let lastVersion = null;
+
+  log("resetting service…");
+  try{ await apiCall("/reset", {method:"POST"}); }catch(e){ log("reset failed, continuing anyway: "+e.message, "warn"); }
+  const st = await refreshStatus().catch(()=>null);
+  if(st) lastVersion = st.model_version;
+
+  for(let i=0;i<N;i++){
+    if(stopRequested){ log("stopped by user", "warn"); break; }
+    const f = [Math.random()*10, Math.random()*10, Math.random()*10];
+    const base = (f[0]+f[1] > 8) ? 1 : 0;
+    const label = i < DRIFT_AT ? base : 1-base;
+    if(i === DRIFT_AT){ log("*** injecting concept drift (decision rule inverted) ***", "event"); markers.push({i, type:"drift"}); }
+
+    try{
+      const resp = await apiCall("/predict", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({features:f, true_label:label})});
+      rollingWindow.push(resp.prediction === label ? 1 : 0);
+      if(rollingWindow.length > 30) rollingWindow.shift();
+      const acc = rollingWindow.reduce((a,b)=>a+b,0)/rollingWindow.length;
+      points.push(acc);
+
+      if(lastVersion !== null && resp.model_version !== lastVersion){
+        log(`*** drift detected -- model retrained v${lastVersion} -> v${resp.model_version} ***`, "event");
+        markers.push({i, type:"retrain"});
+      }
+      lastVersion = resp.model_version;
+    }catch(e){
+      log("request failed: " + e.message, "warn");
+      points.push(points.length ? points[points.length-1] : 0);
+    }
+
+    drawLiveChart(points, markers);
+    progressBar.style.width = (100*(i+1)/N).toFixed(0) + "%";
+    progressText.textContent = `${i+1} / ${N}`;
+  }
+
+  progressText.textContent = "done";
+  log("simulation finished");
+  await refreshStatus().catch(()=>{});
+  btnRun.disabled = false; btnStop.disabled = true;
+});
+
+// ---------------- boot ----------------
+renderDetectorCharts();
+renderSignificanceTable();
+renderAblationCharts();
+renderTimingTable();
+pollUntilLive(3);
+</script>
