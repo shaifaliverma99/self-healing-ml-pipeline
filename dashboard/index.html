@@ -436,7 +436,7 @@ function setTiles(status){
   document.getElementById("t-cost").textContent = "$" + status.cost.total_cost_usd.toFixed(4);
 }
 
-async function refreshStatus(){
+async function refreshStatus(quiet){
   try{
     const status = await apiCall("/status");
     setTiles(status);
@@ -444,16 +444,25 @@ async function refreshStatus(){
     livePillText.textContent = "live";
     return status;
   }catch(e){
-    livePill.className = "pill down";
-    livePillText.textContent = "waking up… (free-tier cold start, retrying)";
+    if(!quiet){
+      livePill.className = "pill down";
+      livePillText.textContent = "waking up… (free-tier cold start, this can take ~60s)";
+    }
     throw e;
   }
 }
 
-async function pollUntilLive(maxTries){
+// Render's free tier sleeps after 15 min idle; a cold start can take 30-50s,
+// so this polls patiently rather than giving up after a couple of quick tries.
+async function pollUntilLive(maxTries, intervalMs){
   for(let i=0;i<maxTries;i++){
-    try{ await refreshStatus(); return true; }catch(e){ await new Promise(r=>setTimeout(r, 4000)); }
+    try{ await refreshStatus(); return true; }
+    catch(e){
+      livePillText.textContent = `waking up… retry ${i+1}/${maxTries}`;
+      await new Promise(r=>setTimeout(r, intervalMs));
+    }
   }
+  livePillText.textContent = "still asleep — click Send test prediction to wake it, or reload";
   return false;
 }
 
@@ -558,5 +567,5 @@ renderDetectorCharts();
 renderSignificanceTable();
 renderAblationCharts();
 renderTimingTable();
-pollUntilLive(3);
+pollUntilLive(15, 5000);
 </script>
