@@ -13,6 +13,7 @@ from typing import List
 
 import numpy as np
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from src.model import OnlineModel
@@ -21,6 +22,13 @@ from src.cost_tracker import CostTracker
 from src.stream_generator import sea_stream
 
 app = FastAPI(title="Self-Healing ML Pipeline")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["GET", "POST"],
+    allow_headers=["*"],
+)
 
 N_FEATURES = 3
 INIT_SIZE = 500
