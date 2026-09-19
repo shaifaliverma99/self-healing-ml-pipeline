@@ -25,3 +25,10 @@ template = (D / "template.html").read_text()
 out = template.replace("__DATA_JSON__", json.dumps(data, separators=(",", ":")))
 (D / "index.html").write_text(out)
 print(f"Saved {D / 'index.html'} ({len(out):,} bytes)")
+
+# GitHub Pages only serves from "/" or "/docs", so docs/ is a required mirror
+# of dashboard/index.html, not a separate document set -- keep them identical.
+docs_dir = R / "docs"
+docs_dir.mkdir(exist_ok=True)
+(docs_dir / "index.html").write_text(out)
+print(f"Saved {docs_dir / 'index.html'} (GitHub Pages mirror)")
