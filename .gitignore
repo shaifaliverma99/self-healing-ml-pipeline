@@ -1,5 +1,4 @@
 __pycache__/
 *.pyc
-results/*.csv
 .ipynb_checkpoints/
 Screenshot*.png

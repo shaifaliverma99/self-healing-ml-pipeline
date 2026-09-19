@@ -1,0 +1,13 @@
+stream,detector,true_drifts,detected_drifts,mean_detection_delay,false_alarms,overall_accuracy,model_versions,total_cost_usd
+sea_abrupt,DDM,3,3,2574.0,0,0.7856,3,0.1539
+sea_abrupt,EDDM,3,3,4000.3,13,0.676,16,0.8039
+sea_abrupt,ADWIN,3,3,3465.7,2,0.7445,5,0.2539
+sea_abrupt,KSWIN,3,1,2496.0,0,0.7333,1,0.0539
+sine_abrupt,DDM,3,2,264.5,0,0.5754,2,0.1039
+sine_abrupt,EDDM,3,3,477.3,7,0.633,10,0.5039
+sine_abrupt,ADWIN,3,3,718.3,0,0.637,3,0.1539
+sine_abrupt,KSWIN,3,3,67.7,0,0.437,3,0.1539
+hyperplane_gradual,DDM,2,2,477.5,1,0.7296,3,0.1539
+hyperplane_gradual,EDDM,2,2,90.5,22,0.8174,24,1.2039
+hyperplane_gradual,ADWIN,2,2,747.0,2,0.7849,4,0.2039
+hyperplane_gradual,KSWIN,2,1,3577.0,1,0.5871,2,0.1039
