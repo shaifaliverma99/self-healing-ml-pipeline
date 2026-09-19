@@ -1,0 +1,7 @@
+services:
+  - type: web
+    name: self-healing-ml-pipeline
+    env: docker
+    dockerfilePath: ./Dockerfile
+    plan: free
+    healthCheckPath: /status
