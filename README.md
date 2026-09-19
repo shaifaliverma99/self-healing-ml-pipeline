@@ -33,15 +33,26 @@ drift-detection algorithms, submittable as a paper.
 
 ```
 pip install -r requirements.txt
-python experiments/run_comparison.py        # produces results/detector_comparison.csv
-uvicorn src.api:app --reload                 # serves the pipeline locally at :8000
+python experiments/run_comparison.py             # single-run illustrative comparison -> results/detector_comparison.csv
+python experiments/run_statistical_validation.py  # 10-seed validation + Wilcoxon significance tests
+python experiments/run_ablation.py                # no-retrain vs periodic vs detector-triggered retraining
+python experiments/run_timing.py                  # measured per-detector wall-clock cost
+uvicorn src.api:app --reload                       # serves the pipeline locally at :8000
 ```
 
-Already run once in this environment — `results/detector_comparison.csv` has a
-first-pass table showing the real trade-off the paper argues: EDDM detects
-fastest but with far more false alarms (higher retrain cost) than DDM/ADWIN,
-while KSWIN is cheapest but misses some drifts. That trade-off, quantified in
-dollars via `cost_tracker.py`, is the paper's contribution.
+All five `results/*.csv` files are committed, so the paper's tables are
+reproducible without re-running anything — but every script is deterministic
+(seeded), so re-running reproduces them byte-for-byte.
+
+**The validated finding** (see `paper/Self_Healing_ML_Pipeline_IEEE.docx` for
+full detail): the single-run comparison suggested ADWIN detects every drift;
+under 10-seed statistical testing that doesn't hold. What does hold: ADWIN's
+accuracy is never significantly different from EDDM's, but it costs
+significantly less in most streams — a cost advantage, not a detection
+advantage. Against DDM/KSWIN, ADWIN detects significantly better, but not
+always for free. A separate ablation study found naive periodic retraining is
+statistically competitive with detector-triggered retraining under abrupt
+drift; the detector's value is concentrated in gradual drift.
 
 ## Swapping in a real dataset later
 
@@ -51,23 +62,15 @@ a Kaggle fraud/credit dataset with a known policy-change date you treat as
 `drift_points`), everything downstream — detectors, pipeline, API, cost
 tracker — works unchanged.
 
-## Next steps (paper)
+## Status
 
-1. Add 1-2 more real-world-flavored synthetic streams (e.g. STAGGER) for
-   breadth.
-2. Report detection-delay / false-alarm / cost as a 3-way scatter per
-   detector — that's your headline figure.
-3. Write up as "Cost-aware drift detection and automated retraining for
-   production ML" — target an applied-ML/systems workshop track
-   (IEEE Big Data / Cloud workshops, or a student symposium) given the
-   timeline.
-
-## Next steps (resume/job)
-
-1. Deploy `src/api.py` per `deploy/README.md`, get a public URL.
-2. Record a 60-90s demo: hit `/predict` with a drifting stream, show
-   `/status` reporting a version bump + drift event + cost.
-3. Resume line: "Built and deployed an MLOps pipeline with automated
-   concept-drift detection (DDM/EDDM/ADWIN/KSWIN) and self-healing
-   retraining; benchmarked detection latency vs. false-alarm rate vs.
-   cloud cost across 4 algorithms."
+- **Paper**: done — `paper/Self_Healing_ML_Pipeline_IEEE.docx`, IEEE format,
+  with a real (verified, CrossRef/arXiv-checked) literature review, multi-seed
+  statistical validation, an ablation study, and honest limitations.
+- **Deployment**: live at the URL in `deploy/README.md`; verified end-to-end
+  (predict/status/reset, input validation, drift-triggered retrain).
+- **Demo**: `demo/live_demo.py` streams a seeded drift event against the live
+  API for a recorded walkthrough.
+- **Next, if continuing**: real-world dataset validation, a formal
+  hyperparameter search, ablation across all four detectors (not just ADWIN),
+  and replacing simulated cost with measured cloud billing.
