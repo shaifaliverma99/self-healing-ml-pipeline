@@ -384,7 +384,14 @@ body("DDM [1] tracks the online error rate and its standard deviation. "
      "KSWIN [4] applies a two-sample KS test between sub-windows of a "
      "sliding window. All four were implemented from scratch (numpy/scipy "
      "only) so cost instrumentation and hot-swap retraining integrate "
-     "directly into the online serving loop.")
+     "directly into the online serving loop. The ADWIN implementation used "
+     "here is a simplified exponential-histogram variant with a fixed "
+     "bucket-merge factor (max 5 buckets per capacity level) rather than the "
+     "full data-structure and cut-point search of the original algorithm "
+     "[3]; this bounds memory and keeps the amortised complexity in Section "
+     "XV, but the reported ADWIN results should be read as reflecting this "
+     "specific implementation, not a re-derivation of the original paper's "
+     "guarantees.")
 h2("D.  Hyperparameter Optimisation")
 body("[DATA REQUIRED] No formal hyperparameter search (grid, random, or "
      "Bayesian) was performed. Each detector uses the default thresholds "
@@ -521,6 +528,15 @@ body(f"All comparative claims in Sections VIII-IX are based on {N_SEEDS} indepen
      "detector's cost is not a fixed number but a distribution, and "
      "reporting only a mean would understate the operational uncertainty an "
      "operator should budget for.")
+body(f"A caveat applies to every 'not significant' result in Table VI: "
+     f"with only {N_SEEDS} paired seeds, the Wilcoxon signed-rank test has limited "
+     "statistical power, particularly for the small- and medium-sized "
+     "accuracy differences seen on the SEA stream. A non-significant result "
+     "here should be read as 'not distinguishable at this sample size,' not "
+     "as evidence that the two detectors are truly equivalent; some of these "
+     "null results may be false negatives rather than true null effects. "
+     "Section XVII returns to this as a limitation on the paper's negative "
+     "findings specifically.")
 
 # ========================= XI. EXPLAINABILITY ===========================
 h1("XI.  EXPLAINABILITY")
@@ -627,6 +643,15 @@ body("The pipeline is deployed as a containerised FastAPI service (Docker, "
 
 # ============================== XVII. LIMITATIONS ================================
 h1("XVII.  LIMITATIONS")
+body(f"Statistical power: with {N_SEEDS} seeds per condition, the paired "
+     "significance tests in Table VI are underpowered for small effect "
+     "sizes (Section X); several 'not significant' results, particularly "
+     "on the SEA stream, may reflect insufficient sample size rather than a "
+     "true absence of difference, and should not be read as proof of "
+     "equivalence. ADWIN implementation: results for ADWIN reflect the "
+     "simplified exponential-histogram variant described in Section V-C, "
+     "not a re-implementation of the original algorithm's full data "
+     "structure.")
 body("Streams are synthetic; results on a real-world stream with a known "
      "distribution-shift date may differ, particularly for KSWIN given the "
      "stream-specific failure mode identified in Section XIV. Cost figures "
